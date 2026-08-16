@@ -33,5 +33,6 @@ export function resolveEntryRailAccountFooterState(
   ) {
     return 'recovering';
   }
-  return 'sign-in';
+  // fork(local-only): never offer the cloud sign-in tip.
+  return 'hidden';
 }

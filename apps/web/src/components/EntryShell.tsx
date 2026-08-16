@@ -1649,7 +1649,9 @@ export function EntryShell({
           onOpenSearch={() => setProjectSearchOpen(true)}
           open={railOpen}
           topRightSlot={
-            view === 'home' && deepSeekV4FlashCampaignAudience !== 'unknown' ? (
+            // fork(local-only): badge only for paid cloud subscribers —
+            // effectively never on a local-only fork.
+            view === 'home' && deepSeekV4FlashCampaignAudience === 'paid' ? (
               <button
                 type="button"
                 className="entry-deepseek-campaign-badge"

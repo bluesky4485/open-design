@@ -90,7 +90,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   agentId: null,
   skillId: null,
   designSystemId: null,
-  onboardingCompleted: false,
+  // fork(local-only): skip the first-run onboarding — its step 0 is a
+  // mandatory Open Design Cloud sign-in wall.
+  onboardingCompleted: true,
   theme: FORCED_APP_THEME,
   accentColor: DEFAULT_ACCENT_COLOR,
   mediaProviders: {},

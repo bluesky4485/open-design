@@ -56,7 +56,6 @@ interface CliTarget {
 }
 
 const CLI_ORDER = [
-  'amr',
   'claude',
   'codex',
   'opencode',
@@ -81,7 +80,6 @@ const CLI_ORDER = [
 ];
 
 const FALLBACK_CLI_TARGETS: CliTarget[] = [
-  { id: 'amr', name: 'Open Design', bin: 'vela', available: false },
   { id: 'claude', name: 'Claude Code', bin: 'claude', available: false },
   { id: 'codex', name: 'Codex CLI', bin: 'codex', available: false },
   { id: 'opencode', name: 'OpenCode', bin: 'opencode-cli', available: false },

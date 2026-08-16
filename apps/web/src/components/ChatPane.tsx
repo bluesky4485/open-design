@@ -1602,7 +1602,10 @@ export function ChatPane({
   const showByokRecoveryCta =
     showByokRecoveryAction && Boolean(onSwitchToLocalCli) && !runFailureHasAction;
   const showErrorActions = showByokRecoveryCta || runFailureHasAction;
-  const showAmrGuidance = Boolean(amrSwitchPayload);
+  // fork(local-only): the switch-to-cloud promotion card is disabled — the
+  // explicit `boolean` annotation keeps TS control-flow from narrowing this to
+  // the literal false and breaking the payload spread below at type level.
+  const showAmrGuidance: boolean = false;
   const visibleRecoveryActionTypes = useMemo(() => {
     const actions: TrackingRunRecoveryActionType[] = [];
     if (!retryAssistant || !onRetry || !runFailureUi) return actions;

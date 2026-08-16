@@ -326,11 +326,8 @@ export interface MediaModel {
  * `packages/model-bank/src/aiModels/openai.ts` and friends in lobehub.
  */
 export const IMAGE_MODELS: MediaModel[] = [
-  { id: 'vela/gpt-image-2', label: 'gpt-image-2 (Cloud)', hint: 'Open Design Cloud · managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'], default: true },
-  { id: 'vela/nano-banana-2', label: 'nano-banana-2 (Cloud)', hint: 'Open Design Cloud · managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'] },
-  { id: 'vela/nano-banana-2-lite', label: 'nano-banana-2-lite (Cloud)', hint: 'Open Design Cloud · fast managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'] },
-  { id: 'vela/seedream-5.0', label: 'seedream-5.0 (Cloud)', hint: 'Open Design Cloud · managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'] },
-  { id: 'vela/seedream-5.0-pro', label: 'seedream-5.0-pro (Cloud)', hint: 'Open Design Cloud · high-quality managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'] },
+  // fork(local-only): the vela/Open Design Cloud image models are removed and
+  // the default-checked card moves to the OpenAI path.
   // OpenAI — fully integrated path.
   {
     id: 'gpt-image-2',
@@ -338,6 +335,7 @@ export const IMAGE_MODELS: MediaModel[] = [
     hint: 'OpenAI · 4K, native multimodal',
     provider: 'openai',
     caps: ['t2i', 'i2i', 'inpaint'],
+    default: true,
   },
   {
     id: 'gpt-image-1.5',

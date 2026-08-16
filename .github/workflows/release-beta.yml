@@ -523,16 +523,33 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Prepare mac_arm64 signing certificate
+        id: mac_arm64_sign_prep
         if: ${{ inputs.mac_arm64_sign_mode != 'no' }}
         env:
           APPLE_SIGNING_CERTIFICATE_BASE64: ${{ secrets.APPLE_SIGNING_CERTIFICATE_BASE64 }}
           APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
+          # Fork-tolerant signing gate. On a fork (or any run without the Apple
+          # cert secret), CSC_LINK must NOT be set: electron-builder would run
+          # `security import` against an empty p12 and fail the build. tools-pack
+          # without --signed builds with identity:null and still produces a valid
+          # adhoc-signed DMG, so we downgrade to unsigned instead of failing.
+          if [ -z "$APPLE_SIGNING_CERTIFICATE_BASE64" ]; then
+            echo "signing_available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::APPLE_SIGNING_CERTIFICATE_BASE64 is empty; building unsigned"
+            exit 0
+          fi
           cert_path="$RUNNER_TEMP/open-design-signing.p12"
           if ! printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 --decode > "$cert_path" 2>/dev/null; then
             printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 -D > "$cert_path"
           fi
+          if [ ! -s "$cert_path" ]; then
+            echo "signing_available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::decoded signing certificate is empty; building unsigned"
+            exit 0
+          fi
+          echo "signing_available=true" >> "$GITHUB_OUTPUT"
           {
             echo "CSC_LINK=$cert_path"
             echo "CSC_KEY_PASSWORD=$APPLE_SIGNING_CERTIFICATE_PASSWORD"
@@ -571,8 +588,18 @@ jobs:
           )
           case "${{ inputs.mac_arm64_sign_mode }}" in
             no) ;;
-            sign-only) build_args+=(--signed) ;;
-            notarize) build_args+=(--signed --notarize) ;;
+            sign-only)
+              # Skip --signed when no Apple cert is available (fork runs):
+              # tools-pack then builds with identity:null -> adhoc-signed DMG.
+              if [ "${{ steps.mac_arm64_sign_prep.outputs.signing_available }}" = "true" ]; then
+                build_args+=(--signed)
+              fi
+              ;;
+            notarize)
+              if [ "${{ steps.mac_arm64_sign_prep.outputs.signing_available }}" = "true" ]; then
+                build_args+=(--signed --notarize)
+              fi
+              ;;
             *) echo "unsupported mac_arm64_sign_mode: ${{ inputs.mac_arm64_sign_mode }}" >&2; exit 1 ;;
           esac
           if build_output="$(pnpm "${build_args[@]}" 2> >(tee -a "$RUNNER_TEMP/release-build/mac_arm64/build.log" >&2))"; then
@@ -610,8 +637,18 @@ jobs:
           )
           case "${{ inputs.mac_arm64_sign_mode }}" in
             no) ;;
-            sign-only) build_args+=(--signed) ;;
-            notarize) build_args+=(--signed --notarize) ;;
+            sign-only)
+              # Skip --signed when no Apple cert is available (fork runs):
+              # tools-pack then builds with identity:null -> adhoc-signed DMG.
+              if [ "${{ steps.mac_arm64_sign_prep.outputs.signing_available }}" = "true" ]; then
+                build_args+=(--signed)
+              fi
+              ;;
+            notarize)
+              if [ "${{ steps.mac_arm64_sign_prep.outputs.signing_available }}" = "true" ]; then
+                build_args+=(--signed --notarize)
+              fi
+              ;;
             *) echo "unsupported mac_arm64_sign_mode: ${{ inputs.mac_arm64_sign_mode }}" >&2; exit 1 ;;
           esac
           if build_output="$(pnpm "${build_args[@]}" 2> >(tee -a "$RUNNER_TEMP/release-build/mac_arm64/build.log" >&2))"; then
@@ -889,16 +926,32 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Prepare mac_x64 signing certificate
+        id: mac_x64_sign_prep
         if: ${{ inputs.mac_x64_sign_mode != 'no' }}
         env:
           APPLE_SIGNING_CERTIFICATE_BASE64: ${{ secrets.APPLE_SIGNING_CERTIFICATE_BASE64 }}
           APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
+          # Same fork-tolerant signing gate as the arm64 job: on a fork the Apple
+          # cert secret is empty, so CSC_LINK must not be set (electron-builder
+          # would `security import` an empty p12 and fail). Without --signed,
+          # tools-pack builds with identity:null and still emits a valid DMG.
+          if [ -z "$APPLE_SIGNING_CERTIFICATE_BASE64" ]; then
+            echo "signing_available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::APPLE_SIGNING_CERTIFICATE_BASE64 is empty; building unsigned"
+            exit 0
+          fi
           cert_path="$RUNNER_TEMP/open-design-signing.p12"
           if ! printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 --decode > "$cert_path" 2>/dev/null; then
             printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 -D > "$cert_path"
           fi
+          if [ ! -s "$cert_path" ]; then
+            echo "signing_available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::decoded signing certificate is empty; building unsigned"
+            exit 0
+          fi
+          echo "signing_available=true" >> "$GITHUB_OUTPUT"
           {
             echo "CSC_LINK=$cert_path"
             echo "CSC_KEY_PASSWORD=$APPLE_SIGNING_CERTIFICATE_PASSWORD"
@@ -930,8 +983,17 @@ jobs:
           )
           case "${{ inputs.mac_x64_sign_mode }}" in
             no) ;;
-            sign-only) build_args+=(--signed) ;;
-            notarize) build_args+=(--signed --notarize) ;;
+            sign-only)
+              # Skip --signed when no Apple cert is available (fork runs).
+              if [ "${{ steps.mac_x64_sign_prep.outputs.signing_available }}" = "true" ]; then
+                build_args+=(--signed)
+              fi
+              ;;
+            notarize)
+              if [ "${{ steps.mac_x64_sign_prep.outputs.signing_available }}" = "true" ]; then
+                build_args+=(--signed --notarize)
+              fi
+              ;;
             *) echo "unsupported mac_x64_sign_mode: ${{ inputs.mac_x64_sign_mode }}" >&2; exit 1 ;;
           esac
           if build_output="$(pnpm "${build_args[@]}" 2> >(tee -a "$RUNNER_TEMP/release-build/mac_x64/build.log" >&2))"; then
@@ -964,8 +1026,17 @@ jobs:
           )
           case "${{ inputs.mac_x64_sign_mode }}" in
             no) ;;
-            sign-only) build_args+=(--signed) ;;
-            notarize) build_args+=(--signed --notarize) ;;
+            sign-only)
+              # Skip --signed when no Apple cert is available (fork runs).
+              if [ "${{ steps.mac_x64_sign_prep.outputs.signing_available }}" = "true" ]; then
+                build_args+=(--signed)
+              fi
+              ;;
+            notarize)
+              if [ "${{ steps.mac_x64_sign_prep.outputs.signing_available }}" = "true" ]; then
+                build_args+=(--signed --notarize)
+              fi
+              ;;
             *) echo "unsupported mac_x64_sign_mode: ${{ inputs.mac_x64_sign_mode }}" >&2; exit 1 ;;
           esac
           if build_output="$(pnpm "${build_args[@]}" 2> >(tee -a "$RUNNER_TEMP/release-build/mac_x64/build.log" >&2))"; then

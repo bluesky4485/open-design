@@ -812,7 +812,7 @@ function codexExecutableGuidance(
   ) {
     return '';
   }
-  return ` Configured Codex path failed: ${configuredOverridePath}. Open Design also detected a PATH Codex CLI at ${pathResolvedPath}. Update CODEX_BIN or clear the custom path to use the detected binary.`;
+  return ` Configured Codex path failed: ${configuredOverridePath}. OpenDesign also detected a PATH Codex CLI at ${pathResolvedPath}. Update CODEX_BIN or clear the custom path to use the detected binary.`;
 }
 
 function codexExecutableFallbackSuccessDetail(
@@ -897,6 +897,7 @@ export function isSmokeOkReply(text: unknown): boolean {
 }
 
 function isLikelyModelErrorText(text: string): boolean {
+  if (/no (?:available )?endpoints? found for\b/i.test(text)) return true;
   return (
     /model/i.test(text) &&
     /(not found|not exist|does not exist|unknown|invalid|unsupported|not supported|not have access|no access|issue with the selected model)/i.test(
@@ -1060,7 +1061,13 @@ function classifyProviderHttpFailure(
   detailText: string,
   secrets: string[],
 ): { kind: ConnectionTestKind; detail: string } {
-  const redactedDetail = redactSecrets(detailText.slice(0, 240), secrets);
+  let providerDetail = detailText;
+  try {
+    providerDetail = extractProviderErrorDetail(JSON.parse(detailText), detailText);
+  } catch {
+    // Keep non-JSON upstream bodies verbatim.
+  }
+  const redactedDetail = redactSecrets(providerDetail.slice(0, 240), secrets);
   const override = providerHttpErrorOverride(
     protocol,
     hostname,
@@ -1345,7 +1352,7 @@ function openAIChatCompletionsProviderCall(
       authorization: `Bearer ${apiKey}`,
       ...(new URL(baseUrl).hostname === 'openrouter.ai' ? {
         'HTTP-Referer': 'https://opendesign.dev',
-        'X-Title': 'Open Design',
+        'X-Title': 'OpenDesign',
       } : {}),
     },
     body: {
@@ -1880,6 +1887,7 @@ interface AgentSink {
   appendRawStdout: (chunk: string) => void;
   getRawStdout: () => string;
   getRawStdoutTail: () => string;
+  getResolvedModel: () => string | null;
   sawTerminalCompletion: () => boolean;
   dispose: () => void;
 }
@@ -1927,6 +1935,7 @@ export function createAgentSink(): AgentSink {
   let stderrTail = '';
   let rawStdout = '';
   let rawStdoutTail = '';
+  let resolvedModel: string | null = null;
   let terminalCompletionSeen = false;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let resolveResult!: (value: AgentSinkResult) => void;
@@ -1999,6 +2008,14 @@ export function createAgentSink(): AgentSink {
         publishStreamError(new Error(message));
         return;
       }
+      if (
+        type === 'status' &&
+        data.label === 'initializing' &&
+        typeof data.model === 'string' &&
+        data.model.trim()
+      ) {
+        resolvedModel = data.model.trim();
+      }
       const delta = data.delta;
       const text = data.text;
       if (type === 'text_delta' && typeof delta === 'string') {
@@ -2041,6 +2058,7 @@ export function createAgentSink(): AgentSink {
     appendRawStdout,
     getRawStdout: () => rawStdout,
     getRawStdoutTail: () => rawStdoutTail,
+    getResolvedModel: () => resolvedModel,
     sawTerminalCompletion: () => terminalCompletionSeen,
     dispose: () => {
       if (debounceTimer) {
@@ -2262,7 +2280,7 @@ function runQuietCommand(command: string, args: string[], cwd: string): Promise<
 async function prepareOpenCodeConnectionTestCwd(tempDir: string): Promise<void> {
   await fsp.writeFile(
     path.join(tempDir, 'README.md'),
-    'Open Design OpenCode connection test.\n',
+    'OpenDesign OpenCode connection test.\n',
     'utf8',
   );
   try {
@@ -2419,6 +2437,7 @@ async function testAgentConnectionInternal(
     const latencyMs = Date.now() - start;
     const rawSample = truncateSample(text);
     const sample = redactSecrets(rawSample);
+    const resolvedModel = sink.getResolvedModel();
     if (rawSample && isLikelyModelErrorText(rawSample)) {
       const detail = redactSecrets(smokeFailureDetail(rawSample));
       console.warn(
@@ -2456,6 +2475,7 @@ async function testAgentConnectionInternal(
       kind: 'success',
       latencyMs,
       model,
+      ...(resolvedModel ? { resolvedModel } : {}),
       agentName: def.name,
       sample,
       diagnostics: buildDiagnostics(
@@ -2567,7 +2587,14 @@ async function testAgentConnectionInternal(
         [],
         {
           model: input.model ?? null,
-          reasoning: input.reasoning ?? null,
+          // The remembered OpenCode variant catalog belongs to the detected
+          // binary. A one-off OPENCODE_BIN connection test may point at a
+          // different version, so keep the base model but do not forward a
+          // variant that was never probed on that executable.
+          reasoning:
+            input.agentId === 'opencode' && executableResolution.configuredOverridePath
+              ? null
+              : input.reasoning ?? null,
           serviceTier: input.serviceTier ?? null,
         },
         {

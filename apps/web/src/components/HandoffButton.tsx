@@ -12,6 +12,7 @@ import type {
 import {
   handoffTargetIdToTracking,
   type TrackingArtifactKind,
+  type TrackingProjectKind,
 } from '@open-design/contracts/analytics';
 import { fetchHostEditors, openProjectInEditor } from '../providers/registry';
 import { useAnalytics } from '../analytics/provider';
@@ -104,6 +105,7 @@ const FALLBACK_CLI_TARGETS: CliTarget[] = [
 
 interface Props {
   projectId: string;
+  projectKind: TrackingProjectKind;
   projectName?: string;
   projectDir?: string | null;
   agents?: AgentInfo[];
@@ -113,7 +115,7 @@ interface Props {
   artifactId?: string;
   artifactKind?: TrackingArtifactKind;
   // Retained on the props contract for the callers that still pass them
-  // (FileViewer / ProjectView). No longer read here since the Open Design
+  // (FileViewer / ProjectView). No longer read here since the OpenDesign
   // Cloud website link was removed from the CLI tab (acceptance #101).
   metricsConsent?: boolean;
   installationId?: string | null;
@@ -161,7 +163,7 @@ function writePreferredFramework(id: string): void {
 }
 
 function cliDisplayName(agent: Pick<CliTarget, 'id' | 'name'>): string {
-  return agent.id === 'amr' ? 'Open Design' : agent.name;
+  return agent.id === 'amr' ? 'OpenDesign' : agent.name;
 }
 
 function mergeCliTargets(agents: AgentInfo[] | undefined): CliTarget[] {
@@ -330,6 +332,7 @@ ${labels.projectId}: ${projectId}
 
 export function HandoffButton({
   projectId,
+  projectKind,
   projectName,
   projectDir,
   agents,
@@ -348,7 +351,7 @@ export function HandoffButton({
   const fireHandoff = (
     props: Omit<
       Parameters<typeof trackHandoffClick>[1],
-      'page_name' | 'area' | 'artifact_id' | 'artifact_kind'
+      'page_name' | 'area' | 'artifact_id' | 'artifact_kind' | 'project_id' | 'project_kind'
     >,
   ) => {
     trackHandoffClick(analytics.track, {
@@ -356,6 +359,8 @@ export function HandoffButton({
       area: 'handoff',
       artifact_id: artifactId,
       artifact_kind: artifactKind,
+      project_id: projectId,
+      project_kind: projectKind,
       ...props,
     });
   };

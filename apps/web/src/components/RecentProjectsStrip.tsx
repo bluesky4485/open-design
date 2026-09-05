@@ -40,6 +40,7 @@ import {
 import {
   canAccessWorkspaceInviteFlow,
   resolveWorkspaceInviteTarget,
+  workspaceInviteAvailableSeats,
   workspaceUpgradeUrl,
 } from './EntryNavRail';
 import { moveWorkspaceProject, workspaceProjectMoveErrorCode } from '../state/projects';
@@ -403,10 +404,8 @@ export function RecentProjectsStrip({
     (workspaceContextHasTeamIdentity(workspaceContext) &&
       workspaceContext?.permissions.canShareProjects === true);
   const canAccessInviteFlow = canAccessWorkspaceInviteFlow(workspaceContext);
-  // The invite dialog's seat-gate upgrade CTA: personal workspace → B's
-  // personal plan modal, team → checkout vs change-plan by subscription state.
-  // One shared decision point — see `workspaceUpgradeUrl` in EntryNavRail.tsx
-  // (recvpYEiH019cD).
+  // The invite dialog's seat-gate upgrade CTA shares the public Pricing
+  // destination owned by `workspaceUpgradeUrl` in EntryNavRail.tsx.
   const inviteUpgradeUrl = workspaceUpgradeUrl(workspaceContext, workspaceBilling);
   const inviteTarget = resolveWorkspaceInviteTarget(workspaceContext);
   const canManageCollection =
@@ -2226,7 +2225,7 @@ export function RecentProjectsStrip({
         canAssignRoles={
           canAssignInviteRoles ?? workspaceContext?.permissions.canInviteMembers === true
         }
-        availableSeats={workspaceContext?.seatSummary?.availableSeats}
+        availableSeats={workspaceInviteAvailableSeats(workspaceContext)}
         entryFrom="all_projects"
         onUpgrade={
           inviteUpgradeUrl
@@ -2475,8 +2474,9 @@ async function loadDeckCover(
   return run;
 }
 
-function deckPreviewSrcDoc(html: string): string {
+export function deckPreviewSrcDoc(html: string): string {
   const withoutScripts = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/giu, '');
+  const withCoverSlide = markFirstDeckPage(withoutScripts);
   const style = `<style id="od-recent-deck-real-preview">
     html,
     body {
@@ -2489,6 +2489,22 @@ function deckPreviewSrcDoc(html: string): string {
       display: block !important;
       scroll-snap-type: none !important;
     }
+    /* Scripts normally fit fixed-stage decks at runtime. Static covers remove
+       those scripts, so normalize both named wrappers as well as the direct
+       slide parent instead of letting an outer transform move slide 1 away. */
+    .deck-shell,
+    .deck-stage,
+    :where(body *):has(> [data-od-cover-slide]) {
+      position: absolute !important;
+      inset: 0 !important;
+      width: ${DECK_PREVIEW_WIDTH}px !important;
+      height: ${DECK_PREVIEW_HEIGHT}px !important;
+      display: block !important;
+      margin: 0 !important;
+      overflow: hidden !important;
+      transform: none !important;
+      transform-origin: 0 0 !important;
+    }
     .slide,
     section[data-slide],
     section[data-screen-label] {
@@ -2499,9 +2515,24 @@ function deckPreviewSrcDoc(html: string): string {
       flex: none !important;
       scroll-snap-align: none !important;
     }
-    .slide:not(:first-of-type),
-    section[data-slide]:not(:first-of-type),
-    section[data-screen-label]:not(:first-of-type),
+    [data-od-cover-slide] {
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: none !important;
+    }
+    [data-od-cover-slide] > *,
+    [data-od-cover-slide] [data-anim],
+    [data-od-cover-slide] .reveal {
+      animation: none !important;
+      transition: none !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: none !important;
+      clip-path: none !important;
+    }
+    .slide:not([data-od-cover-slide]),
+    section[data-slide]:not([data-od-cover-slide]),
+    section[data-screen-label]:not([data-od-cover-slide]),
     .deck-counter,
     .deck-controls,
     .deck-hint,
@@ -2520,6 +2551,7 @@ function deckPreviewSrcDoc(html: string): string {
     #deck-next,
     #deck-cur,
     #deck-total,
+    #hint,
     [data-deck-controls],
     [data-page-controls],
     [data-pagination],
@@ -2535,7 +2567,36 @@ function deckPreviewSrcDoc(html: string): string {
       pointer-events: none !important;
     }
   </style>`;
-  return injectBefore(withoutScripts, '</head>', style);
+  return injectBefore(withCoverSlide, '</head>', style);
+}
+
+function markFirstDeckPage(html: string): string {
+  // The cover document is already inert after script removal. Parse it as HTML
+  // so examples inside comments and raw-text elements cannot impersonate a slide.
+  if (typeof DOMParser === 'undefined') return html;
+  let parsed: Document;
+  try {
+    parsed = new DOMParser().parseFromString(html, 'text/html');
+  } catch {
+    return html;
+  }
+  const page = parsed.querySelector('.slide')
+    ?? parsed.querySelector('[data-slide]')
+    ?? parsed.querySelector('[data-screen-label]');
+  if (!page) return html;
+  const activeClasses = ['active', 'is-active'];
+  for (const activeClass of activeClasses) {
+    page.classList.add(activeClass);
+  }
+  if (page.getAttribute('aria-hidden')?.toLowerCase() === 'true') {
+    page.setAttribute('aria-hidden', 'false');
+  }
+  page.removeAttribute('hidden');
+  page.setAttribute('data-od-cover-slide', '');
+  const doctype = parsed.doctype && typeof XMLSerializer !== 'undefined'
+    ? new XMLSerializer().serializeToString(parsed.doctype)
+    : '';
+  return `${doctype}${parsed.documentElement.outerHTML}`;
 }
 
 function injectBefore(source: string, marker: string, addition: string): string {

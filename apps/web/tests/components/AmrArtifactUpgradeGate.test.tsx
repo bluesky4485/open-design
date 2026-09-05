@@ -33,6 +33,7 @@ function requestSend(projectId = 'project-1', conversationId = 'conversation-1')
 }
 
 const BASE_PROPS = {
+  cloudModelSelected: true,
   profile: 'prod',
   metricsConsent: false,
   installationId: null,
@@ -85,6 +86,63 @@ describe('AmrArtifactUpgradeGate', () => {
 
     await expect(requestSend()).resolves.toBe('proceed');
     expect(screen.queryByTestId('amr-artifact-upgrade-dialog')).toBeNull();
+  });
+
+  it.each(['local CLI', 'BYOK'])('does not prompt when the selected model uses %s', async () => {
+    const onHomeOfferChange = vi.fn();
+    const view = render(
+      <AmrArtifactUpgradeGate
+        {...BASE_PROPS}
+        cloudModelSelected={false}
+        plan="free"
+        planResolved
+        onHomeOfferChange={onHomeOfferChange}
+      />,
+    );
+
+    act(() => publishFinishedRun());
+    await expect(requestSend()).resolves.toBe('proceed');
+    expect(screen.queryByTestId('amr-artifact-upgrade-dialog')).toBeNull();
+
+    view.rerender(
+      <AmrArtifactUpgradeGate
+        {...BASE_PROPS}
+        activeProjectId={null}
+        activeConversationId={null}
+        activeFileName={null}
+        cloudModelSelected={false}
+        homeVisible
+        plan="free"
+        planResolved
+        onHomeOfferChange={onHomeOfferChange}
+      />,
+    );
+    await waitFor(() => expect(onHomeOfferChange).toHaveBeenCalledWith(null));
+    expect(onHomeOfferChange).not.toHaveBeenCalledWith(expect.objectContaining({
+      sessionKey: JSON.stringify(['project-1', 'conversation-1']),
+    }));
+  });
+
+  it('releases a paused Send if the selected model switches away from Cloud', async () => {
+    const view = render(
+      <AmrArtifactUpgradeGate {...BASE_PROPS} plan="free" planResolved />,
+    );
+
+    act(() => publishFinishedRun());
+    const decision = requestSend();
+    await waitFor(() => expect(screen.getByTestId('amr-artifact-upgrade-dialog')).toBeTruthy());
+
+    view.rerender(
+      <AmrArtifactUpgradeGate
+        {...BASE_PROPS}
+        cloudModelSelected={false}
+        plan="free"
+        planResolved
+      />,
+    );
+
+    await expect(decision).resolves.toBe('proceed');
+    await waitFor(() => expect(screen.queryByTestId('amr-artifact-upgrade-dialog')).toBeNull());
   });
 
   it('does not prompt the same session again after the first decision', async () => {
@@ -184,6 +242,37 @@ describe('AmrArtifactUpgradeGate', () => {
       fileName: 'live:artifact-2',
     }));
     expect(onHomeOfferChange).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reinterpret a paid project session through the ambient Free plan on Home', async () => {
+    const onHomeOfferChange = vi.fn();
+    const view = render(
+      <AmrArtifactUpgradeGate
+        {...BASE_PROPS}
+        plan="team_pro"
+        planResolved
+        onHomeOfferChange={onHomeOfferChange}
+      />,
+    );
+
+    act(() => publishFinishedRun());
+    view.rerender(
+      <AmrArtifactUpgradeGate
+        {...BASE_PROPS}
+        activeProjectId={null}
+        activeConversationId={null}
+        activeFileName={null}
+        homeVisible
+        plan="free"
+        planResolved
+        onHomeOfferChange={onHomeOfferChange}
+      />,
+    );
+
+    await waitFor(() => expect(onHomeOfferChange).toHaveBeenCalledWith(null));
+    expect(onHomeOfferChange).not.toHaveBeenCalledWith(expect.objectContaining({
+      sessionKey: JSON.stringify(['project-1', 'conversation-1']),
+    }));
   });
 
   it('fails open while the plan is unavailable, then prompts after Free resolves', async () => {

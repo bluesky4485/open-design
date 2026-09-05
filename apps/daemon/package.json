@@ -1,6 +1,6 @@
 {
   "name": "@open-design/daemon",
-  "version": "0.19.2",
+  "version": "0.21.1",
   "private": true,
   "type": "module",
   "main": "./dist/cli.js",
@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@babel/parser": "7.29.3",
+    "@ffmpeg-installer/ffmpeg": "1.1.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@open-design/agui-adapter": "workspace:*",
     "@open-design/contracts": "workspace:*",
@@ -52,6 +53,7 @@
     "cheerio": "1.2.0",
     "chokidar": "3.6.0",
     "express": "5.2.1",
+    "hyperframes": "0.8.1",
     "jszip": "3.10.1",
     "kiwi-schema": "0.5.0",
     "multer": "2.2.0",

@@ -111,6 +111,19 @@ describe('composeSystemPrompt — metadata.promptTemplate', () => {
     expect(out).not.toContain('1:1 (default');
   });
 
+  it('normalizes a legacy template recommendation to Cloud when no image model is explicit', () => {
+    const out = composeSystemPrompt({
+      metadata: {
+        kind: 'image',
+        promptTemplate: { ...baseSummary, model: 'gpt-image-2' },
+      },
+    });
+
+    expect(out).toContain('**imageModel**: (not provided)');
+    expect(out).toContain('suggested model: vela/gpt-image-2');
+    expect(out).not.toContain('suggested model: gpt-image-2');
+  });
+
   it('inlines the prompt body for video projects too', () => {
     const out = composeSystemPrompt({
       metadata: {
@@ -303,7 +316,7 @@ describe('composeSystemPrompt — metadata.promptTemplate', () => {
     });
 
     expect(out).toContain('## Media generation policy');
-    expect(out).toContain('Open Design-owned media execution is **disabled for this run**');
+    expect(out).toContain('OpenDesign-owned media execution is **disabled for this run**');
     expect(out).toContain('External MCP media tools, when explicitly configured for this run, are outside');
     expect(out).toMatch(/Do not call\s+`"\$OD_NODE_BIN" "\$OD_BIN" media generate`/);
     expect(out).not.toContain('## Media generation contract');
@@ -332,7 +345,7 @@ describe('composeSystemPrompt — metadata.promptTemplate', () => {
     expect(out).toContain('Allowed surfaces for this run: `image`.');
     expect(out).toContain('Allowed models for this run: `gpt-image-2`.');
     expect(out).toContain('### Allowed model IDs (per surface)');
-    expect(out).not.toContain('Open Design-owned media execution is **disabled for this run**');
+    expect(out).not.toContain('OpenDesign-owned media execution is **disabled for this run**');
   });
 
   it('renders BYOK media defaults in the media contract', () => {
@@ -357,6 +370,25 @@ describe('composeSystemPrompt — metadata.promptTemplate', () => {
     expect(out).toContain('- Speech model: `aihubmix-gpt-4o-mini-tts`');
     expect(out).toContain('- Speech voice: `nova`');
     expect(out).toContain('### Allowed model IDs (per surface)');
+  });
+
+  it('gives a run-scoped BYOK image default precedence over project metadata', () => {
+    const out = composeSystemPrompt({
+      metadata: {
+        kind: 'image',
+        imageModel: 'vela/gpt-image-2',
+        imageAspect: '1:1',
+      },
+      byokMediaDefaults: {
+        imageModel: 'gpt-image-2',
+      },
+    });
+
+    expect(out).toContain('**imageModel**: vela/gpt-image-2');
+    expect(out).toContain('- Image model: `gpt-image-2`');
+    expect(out.replace(/\s+/g, ' ')).toContain(
+      'current user message, then the run-scoped BYOK image default, then the project metadata',
+    );
   });
 
   it('renders BYOK media defaults in the non-media dispatch hint', () => {

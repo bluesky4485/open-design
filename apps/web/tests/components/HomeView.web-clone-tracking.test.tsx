@@ -8,9 +8,10 @@
 // project_kind=web_clone on project_create_result.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { HomeView } from '../../src/components/HomeView';
+import { HOME_APPLY_TEMPLATE_EVENT } from '../../src/components/home-hero/chips';
 import { I18nProvider } from '../../src/i18n';
 import { writeHomeGuideStage } from '../../src/components/home-hero/firstRunGuide';
 
@@ -106,10 +107,31 @@ afterEach(() => {
 // #5517 removed the inline template rail from Home; scenario templates are
 // picked from the composer footer's radial Template picker instead.
 async function pickHomeTemplate(id: string) {
-  const trigger = await screen.findByTestId('home-hero-template-trigger');
-  await waitFor(() => expect((trigger as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(trigger);
-  fireEvent.click(await screen.findByTestId(`home-hero-template-wedge-${id}`));
+  // A type already picked retires the row, and the pill has no menu — so
+  // switching means clearing back to the empty state first.
+  const clear = screen.queryByTestId('home-hero-template-clear');
+  if (clear) fireEvent.click(clear);
+  const lead = await screen.findByTestId('home-hero-type-pill-prototype');
+  await waitFor(() => expect((lead as HTMLButtonElement).disabled).toBe(false));
+  let pill = screen.queryByTestId(`home-hero-type-pill-${id}`);
+  if (!pill) {
+    // Types behind 更多 mount only while its popover is open.
+    fireEvent.click(screen.getByTestId('home-hero-type-pills-more'));
+    pill = screen.queryByTestId(`home-hero-type-pill-${id}-more`);
+  }
+  if (pill) {
+    fireEvent.click(pill);
+    return;
+  }
+  // Types outside the fixed row (media, HyperFrames, …) are reached the way
+  // the workspace tabs-bar hands one off: the apply-template window event,
+  // which HomeHero applies exactly as a row click.
+  fireEvent.keyDown(document, { key: 'Escape' });
+  await act(async () => {
+    window.dispatchEvent(
+      new CustomEvent(HOME_APPLY_TEMPLATE_EVENT, { detail: { chipId: id } }),
+    );
+  });
 }
 
 describe('web-clone example-card tracking', () => {
@@ -132,10 +154,10 @@ describe('web-clone example-card tracking', () => {
   });
 
   // Contract lock: the shipped Website-clone example set is intentionally
-  // narrowed to the first-party Open Design site to avoid shipping third-party
+  // narrowed to the first-party OpenDesign site to avoid shipping third-party
   // brand copies. Assert the exact count + domain so the rail can't silently
   // drift back to the old multi-site set without updating this contract.
-  it('resolves exactly the contracted Open Design Website-clone site card', async () => {
+  it('resolves exactly the contracted OpenDesign Website-clone site card', async () => {
     writeHomeGuideStage('done');
     stubPlugins();
     renderHome();
@@ -150,7 +172,7 @@ describe('web-clone example-card tracking', () => {
     ).toBe(true);
   });
 
-  it('renders the contracted Open Design site card with a local eager logo', async () => {
+  it('renders the contracted OpenDesign site card with a local eager logo', async () => {
     writeHomeGuideStage('done');
     stubPlugins();
     renderHome();
@@ -163,7 +185,7 @@ describe('web-clone example-card tracking', () => {
     expect(logo?.getAttribute('fetchpriority')).toBe('high');
   });
 
-  it('falls back when the local Open Design site card logo cannot load', async () => {
+  it('falls back when the local OpenDesign site card logo cannot load', async () => {
     writeHomeGuideStage('done');
     stubPlugins();
     renderHome();

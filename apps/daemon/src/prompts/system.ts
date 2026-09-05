@@ -38,7 +38,7 @@ import {
   SLIM_V2_ROLE_BOUNDARY_GUARD,
 } from './core-slim.js';
 import { renderDirectionIndexBlock, renderDirectionSpecBlock } from './directions.js';
-import { DECK_FRAMEWORK_DIRECTIVE } from './deck-framework.js';
+import { renderDeckFrameworkDirective } from './deck-framework.js';
 import {
   MEDIA_USER_REPLY_CONTRACT,
   renderMediaGenerationContract,
@@ -46,14 +46,17 @@ import {
 import { renderPanelPrompt } from './panel.js';
 import { defaultCritiqueConfig, type CritiqueConfig } from '@open-design/contracts/critique';
 import {
+  composeOdNextStrategyRequestPromptV2,
   executionProfileFromStreamFormat,
   INTEGRATIONS_MCP_PATH,
   SETTINGS_MEDIA_PROVIDERS_PATH,
   type ByokMediaDefaults,
   type ChatSessionMode,
+  type DeckFrameworkMode,
   type ExecutionProfile,
   type MediaExecutionPolicy,
   type MediaSurface,
+  type OdNextStrategyRequestRecipeV2,
 } from '@open-design/contracts';
 
 // Prepended first in every composed prompt so it wins precedence over all
@@ -94,7 +97,7 @@ function renderUiLocalePrompt(
   const lines = [
     '# UI locale override',
     '',
-    `The Open Design UI locale for this run is \`${normalized}\` (${languageName}). All user-visible chat prose and generated UI controls must follow this locale, especially \`<question-form>\` titles, descriptions, labels, placeholders, helper text, and option labels. Keep machine-readable ids and object option \`value\` fields exact and unlocalized.`,
+    `The OpenDesign UI locale for this run is \`${normalized}\` (${languageName}). All user-visible chat prose and generated UI controls must follow this locale, especially \`<question-form>\` titles, descriptions, labels, placeholders, helper text, and option labels. Keep machine-readable ids and object option \`value\` fields exact and unlocalized.`,
     `The artifacts you generate must also be in ${languageName}: every piece of user-visible copy in the HTML/React/page/deck you produce — headings, body text, navigation, button and link labels, captions, alt text, and form fields — is written in this language by default. This holds even when a chosen template, plugin, or design system ships its reference/example content in another language: treat that copy as a layout and style reference and translate/adapt it into ${languageName}, do not ship its wording verbatim. Keep brand names, code, and technical identifiers as-is, and honor an explicit user request for a different output language.`,
   ];
   // The worked zh-CN quick-brief copy below matches the CLASSIC default
@@ -264,7 +267,7 @@ export function resolveExclusiveSurface(args: {
 // means the agent hand-rolls deck scaffolding — so every borderline term
 // stays in.
 const DECK_INTENT_SIGNAL =
-  /\b(slides?|deck|keynote|presentation|pitch\s?deck|(?:seed|pre[-\s]?seed|investor|fundraising|startup)\s+pitch|ppt(x)?|slideshow|carousel)\b|幻灯|简报|讲稿|演示|路演|汇报|宣讲|课件|讲解|演讲|提案/i;
+  /\b(slides?|deck|keynote|presentation|power\s?point|pitch\s?deck|(?:seed|pre[-\s]?seed|investor|fundraising|startup)\s+pitch|ppt(x)?|slideshow|carousel)\b|幻灯|简报|讲稿|演示|路演|汇报|宣讲|课件|讲解|演讲|提案/i;
 
 /**
  * Whether the outgoing user request reads as a slide-deck brief. Gates the
@@ -461,7 +464,7 @@ const MEDIA_DISPATCH_HINT = `
 
 If the user asks you to generate an image, video, or audio file — regardless of which provider or model they mention (fal, Replicate, OpenAI, etc.) — use the daemon dispatcher via your **Bash tool**. Do NOT call provider REST APIs directly.
 
-Open Design Cloud models use the \`vela/*\` prefix. Never invoke the \`vela\`
+OpenDesign Cloud models use the \`vela/*\` prefix. Never invoke the \`vela\`
 CLI directly for those models: the OD dispatcher owns trusted Workspace
 attribution, polling, downloads, and final project-file placement.
 
@@ -592,7 +595,7 @@ function renderRuntimeMediaDefaultsHint(
   if (lines.length === 0) return '';
   return `
 
-### Open Design Cloud media defaults
+### OpenDesign Cloud media defaults
 
 This AMR run uses these managed media defaults when the user has not selected
 a different run-scoped model:
@@ -605,7 +608,7 @@ const FILESYSTEM_HANDOFF_OVERRIDE = `
 
 ## Filesystem handoff
 
-This run uses Open Design's filesystem execution profile. Project files are the source of truth for generated artifacts.
+This run uses OpenDesign's filesystem execution profile. Project files are the source of truth for generated artifacts.
 
 Normal rhythm for artifact work:
 1. Start with a short ordinary assistant message or compact \`<od-card>\` that states the locked direction.
@@ -615,7 +618,7 @@ Normal rhythm for artifact work:
 
 Never type a tool invocation into assistant text as XML, markdown, JSON, or prose; if the runtime cannot call the tool, briefly explain that instead of simulating it.
 
-This tool-call rule does not apply to Open Design UI markup. \`<question-form>\` and \`<od-card>\` are assistant text blocks that the host renders in the UI, not tool calls. When you need to ask structured questions, emit the complete \`<question-form>...</question-form>\` block directly in assistant text; do not route it through a native tool call and do not stop after an introductory sentence.
+This tool-call rule does not apply to OpenDesign UI markup. \`<question-form>\` and \`<od-card>\` are assistant text blocks that the host renders in the UI, not tool calls. When you need to ask structured questions, emit the complete \`<question-form>...</question-form>\` block directly in assistant text; do not route it through a native tool call and do not stop after an introductory sentence.
 
 When you write or edit an HTML file in the project folder through the native file tool, that file is already visible in the user's file panel and preview.
 
@@ -667,11 +670,7 @@ Active design system exception: the active design system is the visual direction
 - When a downstream framework mentions "active direction" or "theme tokens", bind those fields from the active design system instead of the built-in direction library.
 `;
 
-const DEFAULT_LEGACY_DESIGN_SYSTEM_USAGE = `Read DESIGN.md for visual principles, paste tokens.css verbatim into the first <style> when it is provided, and match component shapes from the reference component manifest or fixture when available. Treat any pull-layer index as optional context for deeper inspection; do not assume those files have already been loaded.`;
-
-const DEFAULT_STRUCTURED_DESIGN_SYSTEM_USAGE = `Read DESIGN.md for visual principles and paste tokens.css verbatim into the first <style> when it is provided. Use the structured intent routing below as the sole component-selection path; do not infer components from a legacy manifest or fixture. Treat any pull-layer index as optional evidence for deeper inspection, not as an alternate component inventory.`;
-
-const DEFAULT_INVALID_RUNTIME_DESIGN_SYSTEM_USAGE = `Read DESIGN.md for visual principles and paste tokens.css verbatim into the first <style> when it is provided. The package's structured component runtime is unavailable, so do not fall back to a legacy manifest or fixture or claim exact component reuse. Treat any pull-layer index as optional evidence for diagnosing the package.`;
+const DEFAULT_DESIGN_SYSTEM_USAGE = `Read DESIGN.md for visual principles, paste tokens.css verbatim into the first <style> when it is provided, and match component shapes from the reference component manifest or fixture when available. Treat any pull-layer index as optional context for deeper inspection; do not assume those files have already been loaded.`;
 
 function renderDesignSystemImportModeGuidance(
   importMode: ComposeInput['designSystemImportMode'],
@@ -689,6 +688,11 @@ function renderDesignSystemImportModeGuidance(
 }
 
 export interface ComposeInput {
+  // Internal OD Next request-stage recipe. The daemon only constructs this
+  // after verifying bundled provenance and the Applied Strategy Binding.
+  // When present it is the whole stable system prompt; ordinary composition
+  // remains byte-identical and ignores no default quality section.
+  odNextStrategyRecipe?: OdNextStrategyRequestRecipeV2 | undefined;
   agentId?: string | null | undefined;
   streamFormat?: string | undefined;
   skillBody?: string | undefined;
@@ -727,19 +731,11 @@ export interface ComposeInput {
   // - `designSystemPullIndex`          — lightweight manifest-derived
   //                                      list of richer files available
   //                                      for later pull-channel work.
-  // - `designSystemIntentIndex`        — compact list of canonical business
-  //                                      intents; component details are pulled
-  //                                      only after an intent is selected.
-  // - `designSystemRuntimeIssue`       — visible validation failure for a DS
-  //                                      that declared, but could not load, a
-  //                                      structured runtime.
   designSystemUsageMd?: string | undefined;
   designSystemTokensCss?: string | undefined;
   designSystemComponentsManifest?: string | undefined;
   designSystemFixtureHtml?: string | undefined;
   designSystemPullIndex?: string | undefined;
-  designSystemIntentIndex?: string | undefined;
-  designSystemRuntimeIssue?: string | undefined;
   designSystemImportMode?: 'normalized' | 'hybrid' | 'verbatim' | undefined;
   // Craft references the active skill opted into via `od.craft.requires`.
   // The daemon resolves the slug list to file contents and concatenates
@@ -828,11 +824,13 @@ export interface ComposeInput {
   // assistant-text <artifact> blocks.
   executionProfile?: ExecutionProfile | undefined;
   // Whether the outgoing request text reads as a slide-deck brief (see
-  // `detectDeckIntentSignal`). Only consulted for the freeform maybe-deck
-  // branch: `false` skips the ~20K conditional framework injection,
-  // `true`/`undefined` keep it. Deck-kind projects ignore this — their
-  // framework is unconditional.
+  // `detectDeckIntentSignal`). Classic uses it for the freeform maybe-deck
+  // branch. OD Next additionally uses an explicit `true` to expose the deck
+  // contract when a non-PPT project receives a cross-surface deck request.
+  // Deck-kind projects ignore this — their framework is unconditional.
   freeformDeckSignal?: boolean | undefined;
+  /** Host-resolved OD Next deck scaffold policy for blank vs legacy/existing decks. */
+  deckFrameworkMode?: DeckFrameworkMode | undefined;
   // Which always-on doctrine core to compose. `classic` (default) keeps the
   // legacy DISCOVERY_AND_PHILOSOPHY + designer-charter stack plus its tail
   // overrides. `slim` swaps all of that for the single rewritten charter in
@@ -853,6 +851,7 @@ export interface ComposeInput {
 }
 
 export function composeSystemPrompt({
+  odNextStrategyRecipe,
   agentId,
   skillBody,
   skillName,
@@ -865,8 +864,6 @@ export function composeSystemPrompt({
   designSystemComponentsManifest,
   designSystemFixtureHtml,
   designSystemPullIndex,
-  designSystemIntentIndex,
-  designSystemRuntimeIssue,
   designSystemImportMode,
   craftBody,
   craftSections,
@@ -890,10 +887,45 @@ export function composeSystemPrompt({
   byokMediaDefaults,
   executionProfile,
   freeformDeckSignal,
+  deckFrameworkMode,
   promptCoreVariant,
   mediaHintSignal,
   platformHintSignal,
 }: ComposeInput): string {
+  // ── FORK POINT: two independent prompt implementations ──────────────────
+  // Everything below this early return is the legacy stack; OD Next runs never
+  // reach it. Their content comes from
+  // `plugins/_official/scenarios/od-next-strategy/assets/**` plus the
+  // TypeScript in `@open-design/contracts` `od-next-strategy.ts`, which is
+  // where OD Next carries host runtime contracts. The two sides share no
+  // composition floor, so a rule added below holds only for the runs that take
+  // this branch, and eligibility is re-evaluated per run
+  // (`../strategies/od-next/rollout.ts`). Read `docs/prompt-composition.md`
+  // before changing prompt text on either side.
+  if (odNextStrategyRecipe) {
+    return composeOdNextStrategyRequestPromptV2(odNextStrategyRecipe, {
+      agentId,
+      sessionMode,
+      locale,
+      deckIntent: odNextStrategyRecipe.taskType !== 'ppt' && freeformDeckSignal === true,
+      deckFrameworkMode,
+      metadata,
+      template,
+      designSystemBody,
+      designSystemTitle,
+      designSystemUsageMd,
+      designSystemTokensCss,
+      designSystemComponentsManifest,
+      designSystemFixtureHtml,
+      designSystemPullIndex,
+      designSystemImportMode,
+      craftBody,
+      craftSections,
+      memoryBody,
+      userInstructions,
+      projectInstructions,
+    });
+  }
   // Slim core collapses the discovery layer + designer charter + their tail
   // overrides into one charter document; the classic stack keeps the legacy
   // layered composition until the A/B comparison signs off.
@@ -983,6 +1015,7 @@ export function composeSystemPrompt({
   const resolvedExclusiveSurface = resolveExclusiveSurface({ metadata, skillMode, skillModes });
   const resolvedExecutionProfile =
     executionProfile ?? executionProfileFromStreamFormat(streamFormat);
+  const deckFrameworkDirective = renderDeckFrameworkDirective(resolvedExecutionProfile);
 
   // API/BYOK mode (streamFormat === 'plain'): mirrors the same fix from
   // `@open-design/contracts`'s composer. The daemon hits this path for
@@ -1184,20 +1217,11 @@ export function composeSystemPrompt({
     );
   }
 
-  const hasStructuredIntentIndex = Boolean(designSystemIntentIndex?.trim());
-  const hasStructuredRuntimeIssue = Boolean(designSystemRuntimeIssue?.trim());
-  const hasDeclaredStructuredRuntime = hasStructuredIntentIndex || hasStructuredRuntimeIssue;
-
   if (activeDesignSystemBody && activeDesignSystemBody.length > 0) {
-    const defaultUsageBlock = hasStructuredIntentIndex
-      ? DEFAULT_STRUCTURED_DESIGN_SYSTEM_USAGE
-      : hasStructuredRuntimeIssue
-        ? DEFAULT_INVALID_RUNTIME_DESIGN_SYSTEM_USAGE
-        : DEFAULT_LEGACY_DESIGN_SYSTEM_USAGE;
     const usageBlock =
       designSystemUsageMd && designSystemUsageMd.trim().length > 0
         ? designSystemUsageMd.trim()
-        : defaultUsageBlock;
+        : DEFAULT_DESIGN_SYSTEM_USAGE;
     parts.push(
       `\n\n## How to use this design system${designSystemTitle ? ` — ${designSystemTitle}` : ''}\n\n${usageBlock}`,
     );
@@ -1217,51 +1241,26 @@ export function composeSystemPrompt({
   // Structured (compiled) form of the active brand. The DESIGN.md above
   // sets voice and intent; the tokens.css block below is the SAME
   // contract in machine-readable form — names + values the agent pastes
-  // verbatim instead of re-deriving from prose. Legacy packages use the
-  // components.html manifest to ground the token vocabulary in worked
-  // component shapes (button / card / type roles) without injecting the full
-  // HTML fixture. If manifest extraction fails or is unavailable, the composer
-  // falls back to the verbatim components.html fixture.
-  // Structured packages instead expose an intent index and resolve one exact
-  // component on demand. Those two component paths are mutually exclusive:
-  // the structured runtime, including an invalid one, never falls back to the
-  // legacy manifest / fixture as a competing selection authority.
+  // verbatim instead of re-deriving from prose. The components.html
+  // manifest grounds the token vocabulary in worked component shapes
+  // (button / card / type roles) without injecting the full HTML fixture.
+  // If manifest extraction fails or is unavailable, the composer falls
+  // back to the verbatim components.html fixture. Both blocks are
+  // individually gated: missing files skip silently, preserving the
+  // legacy DESIGN.md-only behaviour for prose-only brands.
   if (designSystemTokensCss && designSystemTokensCss.trim().length > 0) {
     parts.push(
       `\n\n## Active design system tokens${designSystemTitle ? ` — ${designSystemTitle}` : ''}\n\nThe block below is this brand's tokens.css contract — every \`:root\` custom property and any scoped override (e.g. \`:root[lang=...]\`) the brand defines. **Paste the unscoped \`:root { ... }\` block verbatim into the artifact's first \`<style>\`** so every \`var(--*)\` reference resolves at runtime.\n\nDo not invent new tokens. Do not redefine these values. Do not write raw hex outside this :root block. The DESIGN.md above is prose; this is the binding contract.\n\n\`\`\`css\n${designSystemTokensCss.trim()}\n\`\`\``,
     );
   }
 
-  if (
-    !hasDeclaredStructuredRuntime
-    && designSystemComponentsManifest
-    && designSystemComponentsManifest.trim().length > 0
-  ) {
+  if (designSystemComponentsManifest && designSystemComponentsManifest.trim().length > 0) {
     parts.push(
       `\n\n## Reference component manifest${designSystemTitle ? ` — ${designSystemTitle}` : ''}\n\nA compact structured summary derived from this brand's components.html fixture. Use it as the component inventory for generated artifacts: match the listed selectors, component groups, class names, token references, focus behavior, and spacing cadence. Prefer these manifest entries over inventing new component shapes.\n\n\`\`\`text\n${designSystemComponentsManifest.trim()}\n\`\`\``,
     );
-  } else if (
-    !hasDeclaredStructuredRuntime
-    && designSystemFixtureHtml
-    && designSystemFixtureHtml.trim().length > 0
-  ) {
+  } else if (designSystemFixtureHtml && designSystemFixtureHtml.trim().length > 0) {
     parts.push(
       `\n\n## Reference fixture${designSystemTitle ? ` — ${designSystemTitle}` : ''}\n\nA self-contained worked artifact in this design system. Match its component shapes (button structure, card structure, type-scale rhythm, focus ring, spacing cadence) when generating new artifacts. Copying fragments is encouraged as long as you keep the \`var(--*)\` references intact — they are already wired to the tokens above.\n\n\`\`\`html\n${designSystemFixtureHtml.trim()}\n\`\`\``,
-    );
-  }
-
-  if (designSystemIntentIndex && designSystemIntentIndex.trim().length > 0) {
-    const resolutionInstruction = resolvedExecutionProfile === 'text_artifact'
-      ? 'This runtime cannot call the resolver or adherence checker. Use the visible intent-to-component mapping to choose the component, but do not invent hidden variants, properties, states, or implementation details. Before finishing, self-check that every mapped component is reused and every visible value comes from the active tokens.'
-      : 'Before writing UI for a listed business intent, run `"$OD_NODE_BIN" "$OD_BIN" tools design-systems resolve --intent <canonical-intent>` once. Reuse the returned implementation and selectors, apply its variant and properties, and include every required state. If the result requires confirmation or forbids invention, follow that decision instead of creating a near-copy. After writing, run `"$OD_NODE_BIN" "$OD_BIN" tools design-systems validate --intent <canonical-intent> --artifact <project-relative-file>` and add one `--artifact` for every related HTML, CSS, or component source file. A failed report must be fixed and re-run before completion. A confirmation-required report must be surfaced to the user; do not silently bypass it.';
-    parts.push(
-      `\n\n## Structured component intent routing${designSystemTitle ? ` — ${designSystemTitle}` : ''}\n\nThis intent map and its resolver are the sole component-selection authority. Do not select components from prose, a legacy component manifest, or a fixture. Identify the page's business intent first, then choose from the canonical ids below. ${resolutionInstruction}\n\n\`\`\`text\n${designSystemIntentIndex.trim()}\n\`\`\``,
-    );
-  }
-
-  if (designSystemRuntimeIssue && designSystemRuntimeIssue.trim().length > 0) {
-    parts.push(
-      `\n\n## Structured design-system runtime unavailable${designSystemTitle ? ` — ${designSystemTitle}` : ''}\n\nThis package declares a structured runtime, but it failed validation. Do not silently treat it as a valid legacy component map and do not claim structured component reuse. You may still apply DESIGN.md and tokens.css for visual styling; if the task requires mapped component reuse, report this issue for repair.\n\n\`\`\`text\n${designSystemRuntimeIssue.trim()}\n\`\`\``,
     );
   }
 
@@ -1338,27 +1337,28 @@ export function composeSystemPrompt({
   // skill seed is on offer.
   const isDeckProject = resolvedExclusiveSurface === 'deck';
   const isFreeformProject = activeSkillModes.size === 0 && (!metadata || metadata.kind === 'other');
-  const hasSkillSeed =
-    !!skillBody && /assets\/template\.html/.test(skillBody);
-  if (!isAskMode && isDeckProject && !hasSkillSeed) {
-    parts.push(`\n\n---\n\n${DECK_FRAMEWORK_DIRECTIVE}`);
+  const hasDeckSkillSeed =
+    activeSkillModes.has('deck') && !!skillBody && /assets\/template\.html/.test(skillBody);
+  if (!isAskMode && isDeckProject && !hasDeckSkillSeed) {
+    // ⚠️ This decides WHEN the legacy path gets the deck scaffold. OD Next has
+    // its own gate — `resolveOdNextDeckFrameworkMode` in `od-next-strategy.ts`.
+    // The scaffold is shared; the injection conditions are not. Change both.
+    parts.push(`\n\n---\n\n${deckFrameworkDirective}`);
   } else if (
     !isAskMode &&
-    isFreeformProject &&
-    !hasSkillSeed &&
-    (freeformDeckSignal ?? true)
+    !isDeckProject &&
+    !isMediaSurfaceEarly &&
+    !hasDeckSkillSeed &&
+    (freeformDeckSignal === true || (isFreeformProject && freeformDeckSignal === undefined))
   ) {
-    // Freeform / kind=other projects skip the kind picker entirely and
-    // land here. If the user's brief is a deck/keynote/slides ("讲解",
-    // "presentation", "make a deck"), the agent used to invent its own
-    // scale-to-fit + slide visibility + nav script from scratch and
-    // shipped subtle CSS specificity bugs (per-slide layout classes
-    // overriding `.slide { display:none }`). Inject the same framework
-    // here, prefixed with a one-line conditional so the agent only
-    // adopts it when the brief actually is a deck — otherwise the
-    // directive is read as background reference and ignored.
+    // A deck request may arrive after a project was created under another
+    // surface (most commonly Home's default prototype). The turn-latched
+    // signal is stronger than that creation-time kind, so give the agent the
+    // same framework instead of leaving classic/off-rollout runs to invent a
+    // third navigation runtime. Preserve the legacy absent-signal default for
+    // kind=other projects only.
     (isSlimCore ? slimTurnVariableParts : parts).push(
-      `\n\n---\n\n## If this brief is a slide deck / keynote / presentation\n\nThe user did not pre-select a "Slide deck" surface, but their request may still call for one. **If — and only if — the brief reads as slides, keynote, presentation, deck, PPT, or 讲解, follow the framework below.** Otherwise ignore everything in this section and continue with the freeform output you would have written anyway.\n\n${DECK_FRAMEWORK_DIRECTIVE}`,
+      `\n\n---\n\n## If this brief is a slide deck / keynote / presentation\n\nThe user did not pre-select a "Slide deck" surface, but their request may still call for one. **If — and only if — the brief reads as slides, keynote, presentation, deck, PPT, or 讲解, follow the framework below.** Otherwise ignore everything in this section and continue with the freeform output you would have written anyway.\n\n${deckFrameworkDirective}`,
     );
   }
 
@@ -1430,7 +1430,7 @@ export function composeSystemPrompt({
   // originating assistant message, and answers return as the next user message.
   // Applies to every agent — question-form is UI-parsed markup, not a tool.
   if (!isSlimCharterHead || isAskMode) parts.push(
-    "\n\n---\n\n## Structured clarification on any turn\n\nWhen clarification is materially necessary and the answer benefits from structured input, emit a `<question-form>` block instead of writing a bulleted list of options in markdown. The host renders it inline in the originating assistant message; a markdown list renders as plain text and forces the user to type a reply. Use the richest appropriate web form controls (`radio`, `checkbox`, `select`, `text`, `textarea`, `number`, `range`, `date`, `time`, `datetime-local`, `color`, `url`, `email`, `tel`, `file`, `switch`, or `direction-cards`). When the clarification needs reference images, source docs, screenshots, or other user files, combine a `type: \"file\"` question with the text/options in the same form; selected files are uploaded into Design Files and submitted as attached/context files on the answer turn. For every finite-choice question, keep user control by leaving `allowCustom` unset or setting it to `true`, and add localized `customLabel` / `customPlaceholder` when useful. Use free-form prose questions only when a form would add no structure. Do NOT also duplicate the form's questions as markdown text alongside it.\n\n`<question-form>` is assistant text for the Open Design UI, not a native tool call. If you need to clarify direction, emit the complete `<question-form>...</question-form>` block directly in the assistant message before any TodoWrite, file write/edit, Bash, or other native tool call. Do not stop after an introductory sentence such as \"先确认一下方向：\"; the same message must include the full form.",
+    "\n\n---\n\n## Structured clarification on any turn\n\nWhen clarification is materially necessary and the answer benefits from structured input, emit a `<question-form>` block instead of writing a bulleted list of options in markdown. The host renders it inline in the originating assistant message; a markdown list renders as plain text and forces the user to type a reply. Use the richest appropriate web form controls (`radio`, `checkbox`, `select`, `text`, `textarea`, `number`, `range`, `date`, `time`, `datetime-local`, `color`, `url`, `email`, `tel`, `file`, `switch`, or `direction-cards`). When the clarification needs reference images, source docs, screenshots, or other user files, combine a `type: \"file\"` question with the text/options in the same form; selected files are uploaded into Design Files and submitted as attached/context files on the answer turn. For every finite-choice question, keep user control by leaving `allowCustom` unset or setting it to `true`, and add localized `customLabel` / `customPlaceholder` when useful. Use free-form prose questions only when a form would add no structure. Do NOT also duplicate the form's questions as markdown text alongside it.\n\n`<question-form>` is assistant text for the OpenDesign UI, not a native tool call. If you need to clarify direction, emit the complete `<question-form>...</question-form>` block directly in the assistant message before any TodoWrite, file write/edit, Bash, or other native tool call. Do not stop after an introductory sentence such as \"先确认一下方向：\"; the same message must include the full form.",
   );
 
   // Pinned LAST so recency bias reinforces the role-marker prohibition.
@@ -1496,7 +1496,7 @@ If the rules below tell you to plan with TodoWrite, write the plan as prose inst
 // BYOK/API chat behave the same.
 const CHAT_MODE_OVERRIDE = `# Ask mode — bare conversation (this is the whole charter for this turn)
 
-This conversation is in Open Design Ask mode: a fast, low-overhead chat kept deliberately light to save tokens. Open Design is the open-source Claude Design alternative and a native Figma counterpart. Official links: GitHub https://github.com/nexu-io/open-design, website https://open-design.ai/, Discord https://discord.gg/mHAjSMV6gz.
+This conversation is in OpenDesign Ask mode: a fast, low-overhead chat kept deliberately light to save tokens. OpenDesign is the open-source Claude Design alternative and a native Figma counterpart. Official links: GitHub https://github.com/nexu-io/open-design, website https://open-design.ai/, Discord https://discord.gg/mHAjSMV6gz.
 
 Behave like a direct, multi-turn desktop chat assistant. Prefer concise prose: answer the question, explain, compare options, debug prompts, and review existing work. You still have the user's project files, attachments, connectors, MCP servers, project memory, any active design system, and any skills they attached for this turn — use them as context, and follow an attached skill's workflow when one is present.
 
@@ -1504,11 +1504,11 @@ This mode does not load the heavy design-discovery workflow or the full designer
 
 If the user explicitly asks you to build, generate, design, or export a concrete artifact (a page, prototype, deck, image, video, audio, or a file change), handle it inline only when it is genuinely trivial; for anything substantial, say so in one line and suggest switching to Design mode (or Plan mode for a document-first brief), where the full design workflow, brand discipline, and artifact tooling are loaded. Keep this turn conversational.
 
-For mid-conversation clarification you may still emit a \`<question-form>\` block — it is markup the Open Design UI parses, not a native tool call.`;
+For mid-conversation clarification you may still emit a \`<question-form>\` block — it is markup the OpenDesign UI parses, not a native tool call.`;
 
 const PLAN_MODE_OVERRIDE = `# Plan mode — editable document first (read first — overrides every rule below)
 
-This conversation is in Open Design Plan mode. Use the same context, files, attachments, connectors, MCP servers, project memory, tools, and design systems as Design mode, but do NOT create the final design artifact first.
+This conversation is in OpenDesign Plan mode. Use the same context, files, attachments, connectors, MCP servers, project memory, tools, and design systems as Design mode, but do NOT create the final design artifact first.
 
 In filesystem runs, substantial plan-document work still starts with a real TodoWrite/task-list tool call and keeps it updated as work progresses. Do not narrate TodoWrite availability to the user; show progress through the Todo card when the runtime supports it. In plain API runs, follow the API-mode override above and write the plan directly as prose without mentioning missing tools.
 
@@ -1761,7 +1761,7 @@ function renderMetadataBlock(
     ));
     if (metadata.videoModel === 'hyperframes-html') {
       lines.push(
-        'Special case: `hyperframes-html` is a local HTML-to-MP4 renderer, not a photoreal text-to-video model. Treat it like a motion design renderer, ask at most one clarifying question, then create a HyperFrames composition with `npx hyperframes init` under `.hyperframes-cache/`, edit `index.html`, and dispatch via `"$OD_NODE_BIN" "$OD_BIN" media generate --surface video --model hyperframes-html --composition-dir <rel>`. Do not run `npx hyperframes render` yourself.',
+        'Special case: `hyperframes-html` is a local HTML-to-MP4 renderer, not a photoreal text-to-video model. Treat it like a motion design renderer, ask at most one clarifying question, then create a HyperFrames composition with `"$OD_NODE_BIN" "$OD_BIN" media scaffold --composition-dir <rel>` under `.hyperframes-cache/`, edit `index.html`, and dispatch via `"$OD_NODE_BIN" "$OD_BIN" media generate --surface video --model hyperframes-html --composition-dir <rel>`. Do not run HyperFrames `init` or `render` yourself.',
       );
     }
   }
@@ -1895,7 +1895,13 @@ function renderMetadataBlock(
     lines.push(`### Reference prompt template — "${tpl.title ?? 'untitled'}"`);
     const meta = [];
     if (tpl.category) meta.push(`category: ${tpl.category}`);
-    if (tpl.model) meta.push(`suggested model: ${tpl.model}`);
+    const suggestedModel =
+      metadata.kind === 'image' &&
+      !metadata.imageModel?.trim() &&
+      tpl.model === 'gpt-image-2'
+        ? 'vela/gpt-image-2'
+        : tpl.model;
+    if (suggestedModel) meta.push(`suggested model: ${suggestedModel}`);
     if (tpl.aspect) meta.push(`aspect: ${tpl.aspect}`);
     if (Array.isArray(tpl.tags) && tpl.tags.length > 0) {
       meta.push(`tags: ${tpl.tags.join(', ')}`);
@@ -1964,7 +1970,7 @@ function renderMediaMetadataAction(
   const article = surface === 'audio' ? 'an' : 'a';
   const mode = mediaExecution?.mode ?? 'enabled';
   if (mode === 'disabled') {
-    return `This is ${article} **${surface}** project, but Open Design-owned media execution is disabled for this run. Plan the creative brief only unless an external MCP media tool is explicitly configured. Do NOT call OD media generation tools and do NOT emit \`<artifact>\` HTML for media surfaces.`;
+    return `This is ${article} **${surface}** project, but OpenDesign-owned media execution is disabled for this run. Plan the creative brief only unless an external MCP media tool is explicitly configured. Do NOT call OD media generation tools and do NOT emit \`<artifact>\` HTML for media surfaces.`;
   }
   return `This is ${article} **${surface}** project. Plan the creative brief carefully, then dispatch via the **media generation contract** using ${command}. Do NOT emit \`<artifact>\` HTML for media surfaces.`;
 }

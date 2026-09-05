@@ -1071,6 +1071,111 @@ child.on('exit', (code, signal) => {
     }
   });
 
+  it('persists exact AMR prompt budget context across new and resumed sessions', async () => {
+    const previousRuntimeKey = process.env.VELA_RUNTIME_KEY;
+    const previousLinkUrl = process.env.VELA_LINK_URL;
+    const previousPreset = process.env.FAKE_VELA_MODEL_PRESET_JSON;
+    const previousList = process.env.FAKE_VELA_MODEL_LIST_JSON;
+    const model = 'claude-observability-5';
+    try {
+      process.env.VELA_RUNTIME_KEY = `fake-runtime-key-${randomUUID()}`;
+      process.env.VELA_LINK_URL = 'https://amr-link.open-design.ai/v1';
+      process.env.FAKE_VELA_MODEL_PRESET_JSON = JSON.stringify({
+        source: 'preset',
+        data: [{
+          id: model,
+          enabled: true,
+          default: true,
+          metadata: { contextWindowTokens: 200_000 },
+        }],
+      });
+      process.env.FAKE_VELA_MODEL_LIST_JSON = JSON.stringify({
+        source: 'remote',
+        data: [{
+          id: model,
+          enabled: true,
+          default: true,
+          metadata: { contextWindowTokens: 200_000 },
+        }],
+      });
+      const workspaceFixture =
+        await createPersonalWorkspaceBoundProjectFixture('AMR prompt budget fixture');
+      const conversationsResponse = await fetch(
+        `${baseUrl}/api/projects/${workspaceFixture.projectId}/conversations`,
+      );
+      const conversationsBody = await conversationsResponse.json() as {
+        conversations: Array<{ id: string }>;
+      };
+      const conversationId = conversationsBody.conversations[0]?.id;
+      expect(conversationId).toBeTruthy();
+
+      await withFakeAgent(
+        'vela',
+        `
+const { spawn } = require('node:child_process');
+const fixture = ${JSON.stringify(FAKE_VELA_FIXTURE)};
+const child = spawn(process.execPath, [fixture, ...process.argv.slice(2)], {
+  stdio: 'inherit',
+  env: process.env,
+});
+child.on('exit', (code, signal) => {
+  if (signal) process.kill(process.pid, signal);
+  process.exit(code ?? 0);
+});
+`,
+        async () => {
+          const runTurn = async (message: string) => {
+            const createResponse = await fetch(`${baseUrl}/api/runs`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...workspaceFixture.headers,
+              },
+              body: JSON.stringify({
+                agentId: 'amr',
+                projectId: workspaceFixture.projectId,
+                conversationId,
+                model,
+                message,
+                currentPrompt: message,
+              }),
+            });
+            expect(createResponse.status).toBe(202);
+            const { runId } = await createResponse.json() as { runId: string };
+            const eventsResponse = await fetch(`${baseUrl}/api/runs/${runId}/events`);
+            const eventsBody = await readSseUntil(eventsResponse, 'event: final');
+            const statusBody = await waitForRunStatus(baseUrl, runId);
+            expect(statusBody.status).toBe('succeeded');
+            return eventsBody;
+          };
+
+          const first = await runTurn('first exact-frame turn');
+          expect(first).toContain('"name":"prompt_budget_v1"');
+          expect(first).toContain('"sessionMode":"new"');
+          expect(first).toContain('"contextWindowSource":"model_metadata"');
+          expect(first).toContain('"contextWindowTokens":200000');
+          expect(first).toContain('"priorSessionUsageSource":"unknown"');
+
+          const second = await runTurn('second resumed turn');
+          expect(second).toContain('"name":"prompt_budget_v1"');
+          expect(second).toContain('"sessionMode":"resume"');
+          expect(second).toContain('"contextWindowSource":"model_metadata"');
+          expect(second).toContain('"priorSessionUsageSource":"agent_session"');
+          expect(second).toContain('"priorSessionInputTokens":12');
+        },
+      );
+    } finally {
+      if (previousRuntimeKey == null) delete process.env.VELA_RUNTIME_KEY;
+      else process.env.VELA_RUNTIME_KEY = previousRuntimeKey;
+      if (previousLinkUrl == null) delete process.env.VELA_LINK_URL;
+      else process.env.VELA_LINK_URL = previousLinkUrl;
+      if (previousPreset == null) delete process.env.FAKE_VELA_MODEL_PRESET_JSON;
+      else process.env.FAKE_VELA_MODEL_PRESET_JSON = previousPreset;
+      if (previousList == null) delete process.env.FAKE_VELA_MODEL_LIST_JSON;
+      else process.env.FAKE_VELA_MODEL_LIST_JSON = previousList;
+    }
+  });
+
   it('keeps service tier overrides when /api/runs omits model but settings has one', async () => {
     if (!process.env.OD_DATA_DIR) {
       throw new Error('OD_DATA_DIR is required for service tier settings tests');
@@ -1214,7 +1319,7 @@ process.stdin.on('end', () => {
   fs.writeFileSync(path.join(pluginDir, 'open-design.json'), JSON.stringify({ name: 'generated-plugin' }, null, 2));
   fs.writeFileSync(path.join(pluginDir, 'SKILL.md'), '# Generated plugin\\n');
   console.log(JSON.stringify({ type: 'step_start' }));
-  console.log(JSON.stringify({ type: 'text', part: { text: '我来帮你创建一个通用的 Open Design 插件脚手架。先读取文档规范，再生成插件文件。' } }));
+  console.log(JSON.stringify({ type: 'text', part: { text: '我来帮你创建一个通用的 OpenDesign 插件脚手架。先读取文档规范，再生成插件文件。' } }));
   console.log(JSON.stringify({ type: 'step_finish', part: { tokens: { input: 1, output: 1 } } }));
   process.exit(0);
 });
@@ -1228,7 +1333,7 @@ process.stdin.on('end', () => {
             projectId,
             conversationId,
             pluginId: 'od-plugin-authoring',
-            message: '请创建一个可刷新、可审计、由 API 驱动的 Open Design 插件脚手架。',
+            message: '请创建一个可刷新、可审计、由 API 驱动的 OpenDesign 插件脚手架。',
           }),
         });
         expect(createResponse.status).toBe(202);
@@ -1278,7 +1383,7 @@ process.stdin.on('end', () => {
 process.stdin.resume();
 process.stdin.on('end', () => {
   console.log(JSON.stringify({ type: 'step_start' }));
-  console.log(JSON.stringify({ type: 'text', part: { text: '我来帮你创建一个通用的 Open Design 插件脚手架。先读取文档规范，再生成插件文件。' } }));
+  console.log(JSON.stringify({ type: 'text', part: { text: '我来帮你创建一个通用的 OpenDesign 插件脚手架。先读取文档规范，再生成插件文件。' } }));
   console.log(JSON.stringify({ type: 'step_finish', part: { tokens: { input: 1, output: 1 } } }));
   process.exit(0);
 });
@@ -1292,7 +1397,7 @@ process.stdin.on('end', () => {
             projectId,
             conversationId,
             pluginId: 'od-plugin-authoring',
-            message: '请创建一个可刷新、可审计、由 API 驱动的 Open Design 插件脚手架。',
+            message: '请创建一个可刷新、可审计、由 API 驱动的 OpenDesign 插件脚手架。',
           }),
         });
         expect(createResponse.status).toBe(202);
@@ -2239,7 +2344,7 @@ process.stdin.on('end', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             agentId: 'opencode',
-            message: 'build the Open Design landing page',
+            message: 'build the OpenDesign landing page',
             skillId: 'editorial-collage',
             skillIds: ['open-design-landing'],
           }),
@@ -3036,6 +3141,108 @@ process.exit(1);
         expect(eventsBody).toContain('/login');
         expect(eventsBody).toContain('CLAUDE_CONFIG_DIR');
         expect(statusBody.status).toBe('failed');
+      },
+    );
+  });
+
+  it('prefers a terminal Claude prompt-length error over auth-shaped stderr (#6979)', async () => {
+    await withFakeAgent(
+      'claude',
+      `
+console.error(JSON.stringify({ apiKeySource: 'none' }));
+console.log(JSON.stringify({
+  type: 'result',
+  subtype: 'error_during_execution',
+  is_error: true,
+  result: 'Prompt is too long',
+  stop_reason: null,
+}));
+process.exit(1);
+`,
+      async () => {
+        const createResponse = await fetch(`${baseUrl}/api/runs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: 'claude',
+            message: 'hello',
+          }),
+        });
+        expect(createResponse.status).toBe(202);
+        const { runId } = await createResponse.json() as { runId: string };
+
+        const eventsController = new AbortController();
+        const eventsResponse = await fetch(`${baseUrl}/api/runs/${runId}/events`, {
+          signal: eventsController.signal,
+        });
+        const eventsBody = await readSseUntil(eventsResponse, 'event: error');
+        eventsController.abort();
+        await waitForRunStatus(baseUrl, runId);
+        const statusResponse = await fetch(`${baseUrl}/api/runs/${runId}`);
+        const statusBody = await statusResponse.json() as {
+          status: string;
+          failureCategory: string | null;
+          failureDetail: string | null;
+        };
+
+        expect(eventsBody).toContain('AGENT_PROMPT_TOO_LARGE');
+        expect(eventsBody).toContain('Prompt is too long');
+        expect(eventsBody).toContain('"retryable":false');
+        expect(eventsBody).not.toContain('could not authenticate');
+        expect(statusBody).toMatchObject({
+          status: 'failed',
+          failureCategory: 'prompt_too_large',
+          failureDetail: 'prompt_too_large',
+        });
+      },
+    );
+  });
+
+  it('does not treat prompt-length text in an assistant payload as the terminal cause (#6979)', async () => {
+    await withFakeAgent(
+      'claude',
+      `
+console.log(JSON.stringify({
+  type: 'assistant',
+  parent_tool_use_id: null,
+  message: {
+    id: 'msg-prompt-text',
+    content: [{ type: 'text', text: 'The upstream phrase was: Prompt is too long.' }],
+    stop_reason: 'end_turn',
+  },
+}));
+console.log(JSON.stringify({
+  type: 'result',
+  subtype: 'error_during_execution',
+  is_error: true,
+  result: 'A different terminal failure',
+  stop_reason: null,
+}));
+process.exit(1);
+`,
+      async () => {
+        const createResponse = await fetch(`${baseUrl}/api/runs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: 'claude',
+            message: 'hello',
+          }),
+        });
+        expect(createResponse.status).toBe(202);
+        const { runId } = await createResponse.json() as { runId: string };
+
+        const eventsController = new AbortController();
+        const eventsResponse = await fetch(`${baseUrl}/api/runs/${runId}/events`, {
+          signal: eventsController.signal,
+        });
+        const eventsBody = await readSseUntil(eventsResponse, 'event: error');
+        eventsController.abort();
+        await waitForRunStatus(baseUrl, runId);
+
+        expect(eventsBody).toContain('AGENT_EXECUTION_FAILED');
+        expect(eventsBody).toContain('A different terminal failure');
+        expect(eventsBody).not.toContain('AGENT_PROMPT_TOO_LARGE');
       },
     );
   });
@@ -3966,6 +4173,13 @@ describe('chat prompt helpers', () => {
     expect(prompt).toContain('Canonical query for this run:');
     expect(prompt).toContain('EV market 2025 trends');
     expect(prompt).toContain('the first tool action must be the research command');
+
+    const explicit = resolveResearchCommandContract(
+      { enabled: true, query: 'explicit canonical query' },
+      'legacy full transcript must not replace it',
+    );
+    expect(explicit).toContain('explicit canonical query');
+    expect(explicit).not.toContain('legacy full transcript must not replace it');
   });
 
   it('resolves design-system selection precedence for run prompt composition', () => {

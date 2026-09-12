@@ -1745,7 +1745,9 @@ export function EntryShell({
               the workspace tabs bar (entryRailBridge), the updater popup host
               lives in the rail footer, and everything below is fixed-position
               or portalled so it occupies no layout space here. */}
-          <WhatsNewPopup active={view === 'home' && !goPlanSunsetMessagePending} />
+          {/* fork(local-only): the What's New surface doubles as the OpenDesign
+              Arena / Hackathon promo card — keep it dormant on this fork. */}
+          <WhatsNewPopup active={false} />
           {/* The campaign badge lives in EntryNavRail's top-right cluster so it
               stays beside the account module across every entry tab. */}
           {amrBalanceGateBlock?.dialog === 'ask_owner' ? (
